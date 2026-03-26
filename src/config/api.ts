@@ -4,8 +4,9 @@
  */
 
 export const API_CONFIG = {
-  // AI Avatar Generation (Currently MOCKED)
-  AVATAR_GEN_API_URL: process.env.NEXT_PUBLIC_AVATAR_GEN_API_URL || 'https://api.example.com/v1/generate-avatar',
+  // Client-side API Routes (Next.js)
+  CHAT_API: '/api/chat',
+  AVATAR_API: '/api/avatar',
   
   // 3D Character Generation (Currently MOCKED)
   CHARACTER_3D_API_URL: process.env.NEXT_PUBLIC_CHARACTER_3D_API_URL || 'https://api.example.com/v1/generate-3d',

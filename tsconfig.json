@@ -20,7 +20,9 @@
     ],
     "paths": {
       "@/*": ["./src/*"]
-    }
+    },
+    "types": ["stylis"],
+    "typeRoots": ["./node_modules/@types"]
   },
   "include": [
     "next-env.d.ts",

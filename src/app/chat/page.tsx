@@ -1,52 +1,119 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Navbar } from "@/components/navbar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Music, Send, Camera, Sparkles, Check, ChevronRight, Image as ImageIcon } from "lucide-react";
-import { INSTRUMENTS } from "@/config/api";
+import { Music, Send, Camera, Sparkles, Check, ChevronRight, Image as ImageIcon, Loader2 } from "lucide-react";
+import Link from "next/link";
+import { INSTRUMENTS, API_CONFIG } from "@/config/api";
+
+interface Message {
+  role: "ai" | "user";
+  text: string;
+}
 
 export default function ChatPage() {
-  const [messages, setMessages] = useState([
+  const [messages, setMessages] = useState<Message[]>([
     { role: "ai", text: "Hello! I'm Gemini Banana Pro. Let's create your 3D music tutor. First, upload an image or describe the person you want as your avatar!" },
   ]);
   const [input, setInput] = useState("");
   const [step, setStep] = useState(1); // 1: Avatar Creation, 2: Image Validation, 3: Instrument Selection, 4: Ready
   const [avatarImage, setAvatarImage] = useState<string | null>(null);
   const [selectedInstrument, setSelectedInstrument] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-  const handleSend = () => {
-    if (!input.trim() && step !== 3) return;
-    
-    const newMessages = [...messages, { role: "user", text: input }];
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages]);
+
+  const handleSend = async () => {
+    if (!input.trim() || isLoading) return;
+
+    const userMessage = input.trim();
+    const newMessages: Message[] = [...messages, { role: "user", text: userMessage }];
     setMessages(newMessages);
     setInput("");
+    setIsLoading(true);
 
-    // Mock AI Response Logic
-    setTimeout(() => {
+    try {
       if (step === 1) {
-        setMessages([...newMessages, { role: "ai", text: "Great description! Generating your full-body avatar now..." }]);
-        setTimeout(() => {
-          setAvatarImage("https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&h=400&fit=crop"); // Placeholder
-          setMessages((prev) => [...prev, { role: "ai", text: "Here is your generated avatar! Does it look good, or would you like changes?" }]);
+        // Initial Avatar Prompt
+        const response = await fetch(API_CONFIG.CHAT_API, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            message: `User wants an avatar with this description: "${userMessage}". Acknowledge and tell them you are generating it.`,
+            history: messages.map(m => ({ role: m.role === 'ai' ? 'model' : 'user', parts: [{ text: m.text }] }))
+          }),
+        });
+        
+        const data = await response.json();
+        if (data.error) throw new Error(data.error);
+
+        setMessages(prev => [...prev, { role: "ai", text: data.text || "Great description! Generating your avatar now..." }]);
+        
+        // Trigger Avatar Generation
+        const genResponse = await fetch(API_CONFIG.AVATAR_API, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt: userMessage }),
+        });
+        
+        const genData = await genResponse.json();
+        if (genData.imageUrl) {
+          setAvatarImage(genData.imageUrl);
+          setMessages(prev => [...prev, { role: "ai", text: "Here is your generated avatar! Does it look good, or would you like changes?" }]);
           setStep(2);
-        }, 2000);
-      } else if (step === 2) {
-        setMessages((prev) => [...prev, { role: "ai", text: "Perfect! Now, please select the instrument you want to learn." }]);
-        setStep(3);
+        }
+      } else {
+        // General Chat during other steps
+        const response = await fetch(API_CONFIG.CHAT_API, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            message: userMessage,
+            history: messages.map(m => ({ role: m.role === 'ai' ? 'model' : 'user', parts: [{ text: m.text }] }))
+          }),
+        });
+        
+        const data = await response.json();
+        if (data.error) throw new Error(data.error);
+        
+        setMessages(prev => [...prev, { role: "ai", text: data.text }]);
+        
+        if (step === 2 && (userMessage.toLowerCase().includes("good") || userMessage.toLowerCase().includes("yes") || userMessage.toLowerCase().includes("looks"))) {
+           setMessages(prev => [...prev, { role: "ai", text: "Perfect! Now, please select the instrument you want to learn." }]);
+           setStep(3);
+        }
       }
-    }, 1000);
+    } catch (error) {
+      console.error("Chat Error:", error);
+      setMessages(prev => [...prev, { role: "ai", text: "I'm having trouble connecting to my brain right now. Please make sure the API keys are configured." }]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleInstrumentSelect = (id: string) => {
-    setSelectedInstrument(id);
-    setMessages((prev) => [...prev, { role: "user", text: `I want to learn the ${id}.` }]);
-    setMessages((prev) => [...prev, { role: "ai", text: `Excellent choice! The ${id} is a beautiful instrument. We're now generating your 3D character environment.` }]);
-    setStep(4);
+  const handleInstrumentSelect = (id: string, name: string) => {
+    setSelectedInstrument(name);
+    const newMsg: Message = { role: "user", text: `I want to learn the ${name}.` };
+    setMessages((prev) => [...prev, newMsg]);
+    
+    // Auto-respond for instrument
+    setTimeout(() => {
+      setMessages((prev) => [...prev, { 
+        role: "ai", 
+        text: `Excellent choice! The ${name} is a beautiful instrument. We're now generating your 3D character environment. Click the button on the right to start your session!` 
+      }]);
+      setStep(4);
+    }, 1000);
   };
 
   return (
@@ -79,13 +146,25 @@ export default function ChatPage() {
                 </div>
               ))}
               
+              {isLoading && (
+                <div className="flex justify-start">
+                  <div className="bg-muted p-3 rounded-2xl rounded-tl-none border border-orange-100 flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                    <span className="text-sm text-muted-foreground">Gemini is thinking...</span>
+                  </div>
+                </div>
+              )}
+              
               {step === 2 && avatarImage && (
                 <div className="flex justify-start">
                   <div className="bg-muted p-2 rounded-2xl border border-orange-100 max-w-[80%]">
                     <img src={avatarImage} alt="Generated Avatar" className="rounded-xl w-64 h-64 object-cover mb-2" />
                     <div className="flex gap-2">
-                      <Button size="sm" className="bg-primary" onClick={() => handleSend()}>Looks Good!</Button>
-                      <Button size="sm" variant="outline">Change Features</Button>
+                      <Button size="sm" className="bg-primary" onClick={() => {
+                        setStep(3);
+                        setMessages(prev => [...prev, { role: "ai", text: "Perfect! Now, please select the instrument you want to learn." }]);
+                      }}>Looks Good!</Button>
+                      <Button size="sm" variant="outline" onClick={() => setStep(1)}>Change Features</Button>
                     </div>
                   </div>
                 </div>
@@ -96,8 +175,8 @@ export default function ChatPage() {
                   {INSTRUMENTS.map((inst) => (
                     <Card 
                       key={inst.id} 
-                      className={`cursor-pointer hover:border-primary transition-all overflow-hidden ${selectedInstrument === inst.id ? 'border-primary ring-2 ring-primary/20' : ''}`}
-                      onClick={() => handleInstrumentSelect(inst.name)}
+                      className={`cursor-pointer hover:border-primary transition-all overflow-hidden ${selectedInstrument === inst.name ? 'border-primary ring-2 ring-primary/20' : ''}`}
+                      onClick={() => handleInstrumentSelect(inst.id, inst.name)}
                     >
                       <div className="aspect-square bg-stone-100 flex items-center justify-center relative">
                         <Music className="h-10 w-10 text-stone-300" />
@@ -107,6 +186,7 @@ export default function ChatPage() {
                   ))}
                 </div>
               )}
+              <div ref={scrollRef} />
             </div>
           </ScrollArea>
 
@@ -118,13 +198,18 @@ export default function ChatPage() {
               <Input 
                 placeholder={step === 3 ? "Select an instrument above..." : "Describe your avatar..."} 
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSend()}
-                disabled={step === 3 || step === 4}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setInput(e.target.value)}
+                onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => e.key === "Enter" && handleSend()}
+                disabled={step === 3 || step === 4 || isLoading}
                 className="rounded-full border-orange-200 focus-visible:ring-primary"
               />
-              <Button size="icon" className="rounded-full bg-primary h-10 w-10 shrink-0" onClick={handleSend} disabled={step === 3 || step === 4}>
-                <Send className="h-5 w-5" />
+              <Button 
+                size="icon" 
+                className="rounded-full bg-primary h-10 w-10 shrink-0" 
+                onClick={handleSend} 
+                disabled={step === 3 || step === 4 || isLoading || !input.trim()}
+              >
+                {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
               </Button>
             </div>
           </div>
@@ -159,10 +244,12 @@ export default function ChatPage() {
           </Card>
 
           {step === 4 && (
-            <Button size="lg" className="w-full h-16 text-lg font-bold bg-primary hover:bg-primary/90 text-white shadow-lg animate-pulse">
-              <Camera className="mr-2 h-6 w-6" />
-              GENERATE IN AR
-            </Button>
+            <Link href="/ar" className="w-full">
+              <Button size="lg" className="w-full h-16 text-lg font-bold bg-primary hover:bg-primary/90 text-white shadow-lg animate-pulse">
+                <Camera className="mr-2 h-6 w-6" />
+                GENERATE IN AR
+              </Button>
+            </Link>
           )}
 
           <Card className="bg-gradient-to-br from-orange-500 to-orange-600 text-white border-none">
